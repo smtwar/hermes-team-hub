@@ -1,0 +1,21 @@
+# Hermes Team Hub - .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+*.egg-info/
+
+# Runtime data
+hub/
+relay_files/
+
+# Environment
+.env
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
