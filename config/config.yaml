@@ -1,0 +1,16 @@
+# Hermes Team Hub 配置文件
+# 部署时请修改以下参数
+
+server:
+  host: "0.0.0.0"
+  port: 8765
+  token: "your-secret-token-here"  # 请修改为安全 token
+
+relay:
+  storage_dir: "./relay_files"      # 文件存储目录
+
+hub:
+  data_dir: "./hub"                 # 协作数据目录（频道、消息、任务）
+  default_channels:
+    - name: "general"
+      description: "默认讨论频道"
