@@ -1,0 +1,48 @@
+\
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes 团队协作面板</title>
+<link rel="stylesheet" href="/hub/app.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🤝 Hermes 团队协作中心</h1>
+    <div class="status-bar">
+      <span id="conn-status">🔴 未连接</span>
+      <span id="event-count">事件: 0</span>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <section>
+        <h2>📊 智能体状态</h2>
+        <div id="agent-statuses"></div>
+      </section>
+      <section>
+        <h2>📋 任务列表</h2>
+        <div id="task-list"></div>
+      </section>
+    </aside>
+    <section class="chat-area">
+      <h2>💬 讨论区 — #<span id="current-channel">general</span></h2>
+      <div id="chat-messages"></div>
+      <div class="chat-input">
+        <input type="text" id="sender-name" placeholder="你的名称">
+        <input type="text" id="msg-input" placeholder="输入消息..." autofocus>
+        <button onclick="sendMsg()">发送</button>
+      </div>
+      <div class="channel-bar">
+        <span>频道:</span>
+        <span id="channel-list"></span>
+        <button onclick="createChannel()">+新建</button>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/hub/app.js"></script>
+</body>
+</html>
