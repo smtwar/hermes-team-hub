@@ -411,6 +411,164 @@ def cmd_watch(args):
         ws.close()
 
 
+# ─── 共享记忆 ──────────────────────────────────────────────
+
+def cmd_memory(args):
+    """Usage: relay_client.py memory [list|add] [args...]
+
+    Subcommands:
+      list              — 列出所有共享记忆
+      list --scope all  — 按 scope 过滤
+      list --since TS   — 增量同步（输出 timestamp）
+      add <key> <value> — 添加共享记忆
+           --scope windows/linux/cloud/all
+           --author NAME
+    """
+    sub = args[1] if len(args) > 1 else "list"
+
+    if sub == "list":
+        scope = ""
+        since = 0
+        i = 2
+        while i < len(args):
+            if args[i] == "--scope" and i + 1 < len(args):
+                scope = args[i + 1]; i += 2
+            elif args[i] == "--since" and i + 1 < len(args):
+                since = float(args[i + 1]); i += 2
+            else:
+                i += 1
+        path = f"/hub/memory/shared?scope={scope}&since={since}&limit=200"
+        result = _req("GET", path)
+        entries = result.get("entries", [])
+        if not entries:
+            print("📭 暂无共享记忆")
+            return
+        print(f"📚 共享记忆 ({result['total']} 条):")
+        for e in entries:
+            t = time_module.strftime("%m-%d %H:%M", time_module.localtime(e["timestamp"]))
+            sc = f"[{e['scope']}]" if e.get("scope") and e["scope"] != "all" else ""
+            print(f"  {sc} {e['key']:<30} = {e['value'][:80]}")
+            print(f"     by {e.get('author','?')} @ {t}")
+        if since > 0:
+            max_ts = max(e["timestamp"] for e in entries) if entries else 0
+            print(f"\n💡 下次增量同步: --since {max_ts}")
+
+    elif sub == "add":
+        if len(args) < 4:
+            print("❌ usage: memory add <key> <value> [--scope x] [--author y]")
+            return
+        key = args[2]
+        value = args[3]
+        scope = "all"
+        author = AGENT_NAME
+        i = 4
+        while i < len(args):
+            if args[i] == "--scope" and i + 1 < len(args):
+                scope = args[i + 1]; i += 2
+            elif args[i] == "--author" and i + 1 < len(args):
+                author = args[i + 1]; i += 2
+            else:
+                i += 1
+        result = _req("POST", "/hub/memory/shared", {
+            "key": key, "value": value, "author": author, "scope": scope,
+        })
+        if result.get("success"):
+            print(f"📝 已添加共享记忆 [{scope}] {key} = {value[:60]}")
+        else:
+            print(f"❌ {result.get('error', '添加失败')}")
+
+
+# ─── 共享技能 ──────────────────────────────────────────────
+
+def cmd_skill(args):
+    """Usage: relay_client.py skill [list|get|upload|delete] [args...]
+
+    Subcommands:
+      list                                — 列出所有共享技能
+      get <name>                           — 查看技能详情
+      upload <file> [--name X] [--desc Y]  — 上传技能
+      delete <name>                        — 删除技能
+    """
+    sub = args[1] if len(args) > 1 else "list"
+
+    if sub == "list":
+        result = _req("GET", "/hub/skills/shared")
+        skills = result.get("skills", [])
+        if not skills:
+            print("📭 暂无共享技能")
+            return
+        print(f"📦 共享技能 ({result['total']}):")
+        for s in skills:
+            size = f"{s['size']}B" if s['size'] < 1024 else f"{s['size']/1024:.1f}KB"
+            t = time_module.strftime("%m-%d %H:%M", time_module.localtime(s.get("updated_at", 0)))
+            print(f"  {s['name']:<25} v{s['version']} {size:<8} {t}")
+            if s.get("description"):
+                print(f"  {'':25} {s['description'][:60]}")
+
+    elif sub == "get":
+        if len(args) < 3:
+            print("❌ usage: skill get <name>")
+            return
+        name = args[2]
+        result = _req("GET", f"/hub/skill/shared/{name}")
+        if not result.get("success"):
+            print(f"❌ {result.get('error', '不存在')}")
+            return
+        sk = result["skill"]
+        print(f"📦 技能: {sk['name']} v{sk['version']}")
+        if sk.get("description"):
+            print(f"   描述: {sk['description']}")
+        print(f"   作者: {sk.get('author', '?')}")
+        print(f"   更新: {time_module.strftime('%Y-%m-%d %H:%M', time_module.localtime(sk.get('updated_at', 0)))}")
+        print(f"──── 内容 ────────────────────────────────────")
+        print(sk.get("content", ""))
+
+    elif sub == "upload":
+        if len(args) < 3:
+            print("❌ usage: skill upload <file> [--name X] [--desc Y] [--author Z]")
+            return
+        filepath = args[2]
+        if not os.path.exists(filepath):
+            print(f"❌ 文件不存在: {filepath}")
+            return
+        name = ""
+        desc = ""
+        author = AGENT_NAME
+        i = 3
+        while i < len(args):
+            if args[i] == "--name" and i + 1 < len(args):
+                name = args[i + 1]; i += 2
+            elif args[i] == "--desc" and i + 1 < len(args):
+                desc = args[i + 1]; i += 2
+            elif args[i] == "--author" and i + 1 < len(args):
+                author = args[i + 1]; i += 2
+            else:
+                i += 1
+        if not name:
+            name = os.path.splitext(os.path.basename(filepath))[0]
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        result = _req("POST", "/hub/skills/shared", {
+            "name": name, "content": content, "description": desc, "author": author,
+        })
+        if result.get("success"):
+            sk = result["skill"]
+            print(f"📤 技能已共享: {sk['name']} v{sk['version']} ({sk['size']}B)")
+        else:
+            print(f"❌ {result.get('error', '上传失败')}")
+
+    elif sub == "delete":
+        if len(args) < 3:
+            print("❌ usage: skill delete <name>")
+            return
+        name = args[2]
+        result = _req("POST", "/hub/skill/shared/delete", {"name": name})
+        if result.get("success"):
+            print(f"🗑️ 已删除技能: {name}")
+        else:
+            print(f"❌ {result.get('error', '删除失败')}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -442,6 +600,10 @@ def main():
         cmd_watch(sys.argv[2:])  # 实时监听模式
     elif cmd == "stats":
         _print_json(_req("GET", "/stats"))
+    elif cmd == "memory":
+        cmd_memory(sys.argv[1:])
+    elif cmd == "skill":
+        cmd_skill(sys.argv[1:])
     else:
         print(f"❌ 未知命令: {cmd}")
         print(__doc__)

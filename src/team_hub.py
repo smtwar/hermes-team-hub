@@ -348,6 +348,166 @@ def list_status(limit: int = 20) -> dict:
             seen[e["agent"]] = e
     return {"success": True, "statuses": list(seen.values())}
 
+
+# ═══════════════════════════════════════════════════════════════
+# ─── 共享记忆系统（飞书风格知识库） ────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# 所有 Agent 共享的持久化记忆。追加式写入，支持按 scope 过滤。
+# scope: "all" | "windows" | "linux" | "cloud" | "project:<name>"
+
+MEMORY_SCOPES = ("all", "windows", "linux", "cloud")
+
+def add_shared_memory(key: str, value: str, author: str = "",
+                      scope: str = "all") -> dict:
+    """添加一条共享记忆"""
+    if scope not in MEMORY_SCOPES and not scope.startswith("project:"):
+        scope = "all"
+    entry = {
+        "id": int(time.time() * 1000000) % (2**53),
+        "key": key,
+        "value": value,
+        "author": author,
+        "scope": scope,
+        "timestamp": time.time(),
+    }
+    _append_json("shared_memory", entry)
+    _emit("shared_memory_added", entry)
+    return {"success": True, "entry": entry}
+
+
+def list_shared_memory(scope: str = "", since: float = 0, limit: int = 200) -> dict:
+    """列出共享记忆，支持按 scope 过滤和增量同步"""
+    entries = _read_json("shared_memory")
+    if scope:
+        entries = [e for e in entries if e.get("scope") == scope or e.get("scope") == "all"]
+    if since > 0:
+        entries = [e for e in entries if e.get("timestamp", 0) > since]
+    entries = entries[-limit:]
+    return {"success": True, "entries": entries, "total": len(entries)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─── 共享技能系统 ────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# Skills 文件存储在 HUB_DIR/shared_skills/ 目录下
+# 注册信息（元数据）在 shared_skills.json 中
+
+SHARED_SKILLS_DIR = HUB_DIR / "shared_skills"
+
+
+def _init_shared_skills():
+    """初始化共享技能目录"""
+    SHARED_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    _init_json("shared_skills", [])
+
+
+def _skill_manifest_path(name: str) -> Path:
+    return SHARED_SKILLS_DIR / f"{name}.md"
+
+
+def list_shared_skills() -> dict:
+    """列出所有共享技能"""
+    registry = _read_json("shared_skills")
+    skills = []
+    for reg in registry:
+        fp = _skill_manifest_path(reg["name"])
+        skills.append({
+            "name": reg["name"],
+            "description": reg.get("description", ""),
+            "author": reg.get("author", ""),
+            "version": reg.get("version", 1),
+            "size": fp.stat().st_size if fp.exists() else 0,
+            "updated_at": reg.get("updated_at", 0),
+        })
+    return {"success": True, "skills": skills, "total": len(skills)}
+
+
+def get_shared_skill(name: str) -> dict:
+    """获取单个共享技能的内容"""
+    fp = _skill_manifest_path(name)
+    if not fp.exists():
+        return {"success": False, "error": f"技能 '{name}' 不存在"}
+    registry = _read_json("shared_skills")
+    meta = {}
+    for reg in registry:
+        if reg["name"] == name:
+            meta = reg
+            break
+    return {
+        "success": True,
+        "skill": {
+            "name": name,
+            "description": meta.get("description", ""),
+            "author": meta.get("author", ""),
+            "version": meta.get("version", 1),
+            "content": fp.read_text(encoding="utf-8"),
+            "updated_at": meta.get("updated_at", 0),
+        }
+    }
+
+
+def upload_shared_skill(name: str, content: str, description: str = "",
+                        author: str = "", version: int = 1) -> dict:
+    """上传/更新一个共享技能"""
+    if not name or not name.strip():
+        return {"success": False, "error": "技能名不能为空"}
+    name = name.strip().lower().replace(" ", "-")
+    fp = _skill_manifest_path(name)
+
+    # 写入技能文件
+    with _HUB_LOCK:
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        tmp = fp.with_suffix(f".tmp.{os.getpid()}")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        tmp.replace(fp)
+
+    # 更新注册表
+    registry = _read_json("shared_skills")
+    found = False
+    for reg in registry:
+        if reg["name"] == name:
+            reg["description"] = description or reg.get("description", "")
+            reg["author"] = author or reg.get("author", "")
+            reg["version"] = version
+            reg["updated_at"] = time.time()
+            found = True
+            break
+    if not found:
+        registry.append({
+            "name": name,
+            "description": description,
+            "author": author,
+            "version": version,
+            "updated_at": time.time(),
+        })
+    _write_json("shared_skills", registry)
+
+    size = fp.stat().st_size
+    _emit("shared_skill_uploaded", {"name": name, "size": size, "author": author})
+    return {"success": True, "skill": {"name": name, "size": size, "version": version}}
+
+
+def delete_shared_skill(name: str) -> dict:
+    """删除一个共享技能"""
+    fp = _skill_manifest_path(name)
+    if not fp.exists():
+        return {"success": False, "error": f"技能 '{name}' 不存在"}
+    fp.unlink()
+
+    # 从注册表移除
+    registry = _read_json("shared_skills")
+    registry = [r for r in registry if r["name"] != name]
+    _write_json("shared_skills", registry)
+    return {"success": True, "message": f"已删除技能 '{name}'"}
+
+
+# 在 init 中加入共享技能初始化
+_original_init = init
+def init():
+    _original_init()
+    _init_shared_skills()
+
 # ─── 初始化 ────────────────────────────────────────────────
 
 init()
@@ -356,6 +516,8 @@ __all__ = [
     "create_channel", "list_channels", "delete_channel", "post_message", "read_messages",
     "create_task", "list_tasks", "view_task", "update_task", "add_comment",
     "post_status", "list_status",
+    "add_shared_memory", "list_shared_memory",
+    "list_shared_skills", "get_shared_skill", "upload_shared_skill", "delete_shared_skill",
     "sse_subscribe", "sse_unsubscribe",
     "ws_register", "ws_unregister", "ws_get_online", "ws_broadcast",
 ]

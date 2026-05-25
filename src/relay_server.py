@@ -710,6 +710,22 @@ window.addEventListener('offline', fallbackToPolling);
         if path == "/hub/status":
             return self._json(team_hub.list_status())
 
+        # ─── 共享记忆 ────────────────────────────────────────
+        if path == "/hub/memory/shared":
+            params = parse_qs(urlparse(self.path).query)
+            scope = params.get("scope", [""])[0]
+            since = float(params.get("since", ["0"])[0])
+            limit = int(params.get("limit", ["200"])[0])
+            return self._json(team_hub.list_shared_memory(scope, since, limit))
+
+        # ─── 共享技能 ────────────────────────────────────────
+        if path == "/hub/skills/shared":
+            return self._json(team_hub.list_shared_skills())
+
+        if path.startswith("/hub/skill/shared/"):
+            name = path[len("/hub/skill/shared/"):]
+            return self._json(team_hub.get_shared_skill(name))
+
         if path == "/hub/online":
             # 飞书风格在线状态 API
             online = team_hub.ws_get_online()
@@ -890,6 +906,27 @@ window.addEventListener('offline', fallbackToPolling);
                 data.get("agent", ""),
                 data.get("status", ""),
                 data.get("message", "")))
+
+        # ─── 共享记忆 POST ────────────────────────────────────
+        if path == "/hub/memory/shared":
+            return self._json(team_hub.add_shared_memory(
+                key=data.get("key", ""),
+                value=data.get("value", ""),
+                author=data.get("author", ""),
+                scope=data.get("scope", "all")))
+
+        # ─── 共享技能 POST ────────────────────────────────────
+        if path == "/hub/skills/shared":
+            return self._json(team_hub.upload_shared_skill(
+                name=data.get("name", ""),
+                content=data.get("content", ""),
+                description=data.get("description", ""),
+                author=data.get("author", ""),
+                version=data.get("version", 1)))
+
+        if path == "/hub/skill/shared/delete":
+            return self._json(team_hub.delete_shared_skill(
+                data.get("name", "")))
 
         self._json({"error": "Not found"}, 404)
 
